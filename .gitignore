@@ -1,0 +1,13 @@
+# environment and dependencies created by deploy/setup_smat3.sh
+venv-smat3/
+ext/
+smat_r3/pip_freeze_local.txt
+
+# training and test outputs
+runs/
+smat_r3/smoke_runs/
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/

@@ -1,0 +1,5 @@
+# Keep LF line endings in every checkout (the shell scripts run on Linux).
+* text=auto eol=lf
+*.npz binary
+*.zip binary
+*.pt binary

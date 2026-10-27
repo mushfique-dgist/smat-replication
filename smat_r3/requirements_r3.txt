@@ -1,0 +1,37 @@
+# MyoAssist 3b945c7 requirements.txt, with the two unpinned stable-baselines3
+# lines pinned to 2.7.1, the newest SB3 release before SMAT's arXiv submission
+# (2026-03-08; 2.8.0 was released on 2026-04-01). See D-DEPS-01.
+click
+sk-video
+# gym==0.13 # default to this stable point if caught in gym/gymnasium issues
+gymnasium==0.29.1
+termcolor
+flatten_dict
+h5py
+numpy==2.2.6
+mujoco==3.3.3
+dm-control==1.0.31
+Pillow
+pink-noise-rl
+packaging
+gitpython
+
+# RL
+stable-baselines3==2.7.1
+stable-baselines3[extra]==2.7.1
+# imageio
+mediapy
+# for mac issue
+tensorboard
+
+# CTRL_OPTIM
+cma==4.0.0
+tqdm
+opencv-python==4.11.0.86
+imageio[ffmpeg]==2.37.0
+scikit-video==1.1.11
+h5py==3.12.1
+openpyxl==3.1.5
+absl-py==2.1.0
+setuptools
+tk
