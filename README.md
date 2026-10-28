@@ -3,10 +3,10 @@
 <h1>SMAT Replication</h1>
 
 <p><strong>Staged Multi-Agent Training for Co-Adaptive Exoskeleton Control</strong><br>
-Independent implementation and controlled evaluation on MyoAssist</p>
+Code and notes for reproducing SMAT on MyoAssist</p>
 
 <p>
-<a href="https://arxiv.org/abs/2603.07618v1">Method paper</a> &nbsp;·&nbsp;
+<a href="https://arxiv.org/abs/2603.07618v1">SMAT paper</a> &nbsp;·&nbsp;
 <a href="https://arxiv.org/abs/2608.00715v1">Extended paper and supplement</a> &nbsp;·&nbsp;
 <a href="https://github.com/Fitz-Yuan/SMAT-Exo">Authors' repository</a> &nbsp;·&nbsp;
 <a href="docs/IMPLEMENTATION_NOTES.md">Implementation notes</a>
@@ -14,67 +14,54 @@ Independent implementation and controlled evaluation on MyoAssist</p>
 
 </div>
 
-## Abstract
+This project tries to reproduce the four-stage training method from the SMAT papers [1, 2] using MyoAssist [3]. The aim is to reproduce the reported reduction in hip-muscle activation and check how the device torque and reward changes each affect the result.
 
-This repository provides an independent reimplementation of Staged Multi-Agent Training (SMAT) for co-adaptive hip-exoskeleton control [1, 2]. A simulated human and a bilateral exoskeleton are represented by separate actors with a shared critic and trained through a four-stage curriculum. The implementation follows the published training schedule, reward weights, and PPO hyperparameters on a pinned MyoAssist revision [3]. Two additional control conditions are included to distinguish changes associated with device assistance from changes associated with the reward specification. Unreported implementation details and deviations from the published setup are documented explicitly. Full-length replication results and device-effect estimates are pending.
+The code is an independent implementation based on the papers. It follows Algorithm S1 and Tables S2–S4 from the extended paper's supplement, using version `2608.00715v1`. Details that are missing from the papers, and the choices made here, are described in the [implementation notes](docs/IMPLEMENTATION_NOTES.md).
+
+**Status (27 October 2026):** Full training results are pending. The last recorded update was Stage-1 training for three seeds with termination variant T06. This repository contains the code and run configurations, without trained checkpoints or final evaluation results.
 
 <p align="center">
-<img src="docs/figures/training_protocol.svg" alt="Four-stage SMAT curriculum: gait acquisition, adaptation to device mass, exoskeleton training with a frozen human actor, and co-adaptation. Three Stage-4 conditions branch from the same Stage-3 policy." width="100%">
+<img src="docs/figures/training_protocol.svg" alt="The four SMAT training stages, with three control runs starting from the same Stage-3 policy." width="100%">
 </p>
 
-<p align="center"><em>Figure 1. Training curriculum and Stage-4 control conditions. Conditions (d), (b), and (f) share the Stage-3 parent policy within each seed.</em></p>
+<p align="center"><em>Training stages and the three Stage-4 runs. Each seed uses the same Stage-3 policy for runs (d), (b), and (f).</em></p>
 
-**Release status — 27 October 2026.** Source code, experiment configurations, model definitions, and evaluation tools are included. The project record reports that full-length Stage-1 training began in October 2026 for three seeds using termination variant T06. Trained checkpoints, full-length evaluation outputs, and completed replication results are not included.
+## Training method
 
-## 1. Method and experimental design
+SMAT first trains a simulated human to walk, then adds the exoskeleton. The human model has 26 muscles. One policy controls the muscles and another controls the two hip motors, with a shared critic during PPO training [4] in MuJoCo [5].
 
-### 1.1 Replication scope
+| Stage | Training | Device | Torque limit | Steps |
+|:---:|---|---|---:|---:|
+| 1 | Human learns to walk | No device | 0 | 320M |
+| 2 | Human adapts to the added mass | Worn, 5.94 kg | 0 | 160M |
+| 3 | Exoskeleton learns, human policy frozen | Worn | 6 N·m | 1.1M |
+| 4 | Human and exoskeleton learn together | Worn | 25 N·m | 66M |
 
-SMAT couples a 26-muscle human model with a bilateral hip exoskeleton in MyoAssist, using PPO [4] and MuJoCo [5]. The published simulation reports a 10.1% average reduction in activation across four right-side hip muscles between Stage 4, with active assistance at 25 N·m, and Stage 2, with the device worn at zero torque [1, 2]. This value is a result of the original study; it has not yet been reproduced by this repository.
+In Stage 3, the human policy still samples actions, but its weights are fixed. Stage 4 gives the human policy two extra inputs: the exoskeleton commands for that step. Stage 2 updates only the human policy and critic.
 
-The implementation follows Algorithm S1, reward-weight Tables S2 and S3, and PPO Table S4 of the extended paper's supplementary material [2]. MyoAssist is pinned to [`3b945c7bb77a1792141652681441796a6a37a4a9`](https://github.com/neumovelab/myoassist/tree/3b945c7bb77a1792141652681441796a6a37a4a9), dated 5 February 2026, before the initial SMAT preprint. The extended-paper citation is pinned to **arXiv:2608.00715v1**, the version used by the implementation record.
+Training uses 32 parallel environments. Control runs at 50 Hz, with physics at 1,200 Hz. The PPO settings follow Table S4, with a value-loss coefficient of 0.5 because the papers do not specify one. The full list is in the [PPO notes](docs/IMPLEMENTATION_NOTES.md#9-ppo) and [`stage_config.py`](smat_r3/smat3/stage_config.py). The SMAT reward formulas are in [`reward_terms.py`](smat_r3/smat3/reward_terms.py).
 
-This is an independent implementation derived from the published method description. As of 27 October 2026, the [authors' repository](https://github.com/Fitz-Yuan/SMAT-Exo) contains a README announcing a forthcoming code release.
+## Extra control runs
 
-### 1.2 Training curriculum
+The original study reports a 10.1% reduction in average activation across four right-side hip muscles, comparing Stage 4 with Stage 2 [1, 2]. That result has not yet been reproduced here.
 
-| Stage | Objective | Human actor | Exoskeleton actor | Device | Torque cap | Environment steps |
-|:---:|---|---|---|---|---:|---:|
-| 1 | Gait acquisition | Trained | Absent | Absent | 0 | 320M |
-| 2 | Adaptation to device mass | Trained | Not trained | Worn; 5.94 kg | 0 | 160M |
-| 3 | Assistance pretraining | Frozen; actions sampled | Trained | Worn | 6 N·m | 1.1M |
-| 4 | Human–device co-adaptation | Trained; receives two device-command inputs | Trained | Worn | 25 N·m | 66M |
+Between these stages, both the torque and the reward weights change. For example, the muscle-activation penalty rises from 0.01 to 0.15. This makes it difficult to tell how much of the reduction comes from assistance and how much comes from the reward change. Two extra Stage-4 runs are included to check this.
 
-| PPO parameter | Stage 1 | Stage 2 | Stage 3 | Stage 4 |
-|---|---:|---:|---:|---:|
-| Learning rate | 5e-5 | 3e-5 | 3e-5 | 3e-5 |
-| Entropy coefficient | 0.001 | 0.001 | 0.003 | 0.003 |
-
-Shared settings from Table S4 are a clip range of 0.15, 2,048 rollout steps per environment, 32 parallel environments, a minibatch size of 16,384, 20 epochs per update, discount factor 0.99, GAE λ = 0.95, target KL = 0.01, and maximum gradient norm 0.5. The unreported value-loss coefficient is set to 0.5. Control runs at 50 Hz (Δt = 0.02 s), with physics at 1,200 Hz.
-
-Stage constants are defined in [`stage_config.py`](smat_r3/smat3/stage_config.py); SMAT-specific reward terms are defined in [`reward_terms.py`](smat_r3/smat3/reward_terms.py).
-
-### 1.3 Control conditions
-
-The Stage-2 to Stage-4 comparison changes both assistance and the human reward. The forward-progress weight rises from 0.8 to 1.5, the activation-penalty weight from 0.01 to 0.15, and the activation-change penalty from 0.005 to 0.05. A hip-activation term is introduced with weight 2.0 in Stage 3 and 5.0 in Stage 4. The reported activation difference therefore includes both changes.
-
-Three Stage-4 conditions branch from the same Stage-3 policy for each seed:
-
-| Condition | Applied device torque | Reward specification |
+| Run | Device torque | Reward |
 |---|---|---|
-| **(d) SMAT** | Up to 25 N·m | Stage-4 reward |
-| **(b) Torque-zero control** | Zero; device worn and commanded | Stage-4 reward, including `r_exo` and `r_Δτ` computed on the inert command |
-| **(f) Reward-neutral control** | Zero; device worn and commanded | Stage-4 reward with `r_exo` and `r_Δτ` removed |
+| (d) SMAT | Up to 25 N·m | Full Stage-4 reward |
+| (b) Zero torque | Zero, with the device still worn and commanded | Full Stage-4 reward, including rewards based on the unused motor commands |
+| (f) Zero torque without exoskeleton rewards | Zero, with the device still worn and commanded | Stage-4 reward with `r_exo` and `r_Δτ` removed |
 
-For each seed, the activation outcome is the mean of the per-muscle percentage reductions across the right iliopsoas, gluteus maximus, rectus femoris, and hamstrings. Each muscle's activation is averaged over all evaluated control steps, weighted by episode length.
+All three runs start from the same Stage-3 policy for each seed. The hip-activation reward stays in both control runs.
 
-The planned primary contrast is **(d) versus (f)**. The companion contrast **(b) versus (f)** assesses the contribution of the exoskeleton reward terms. If its 95% confidence interval lies within ±2 percentage points, (d) versus (f) is reported as the device effect; otherwise, (d) versus (b) is reported. Condition (d) is also evaluated with assistance switched off. Conditions (b) and (f) are evaluated with zero applied torque, matching their training conditions. These contrasts are an analysis protocol; no estimates are reported in this release.
+Activation is measured for the right iliopsoas, gluteus maximus, rectus femoris, and hamstrings. For each seed, the percentage reduction is calculated separately for each muscle, then averaged across the four muscles. Each muscle's mean activation uses all evaluated steps, so longer episodes contribute more.
 
-## 2. Reproduction
+The planned main comparison is (d) against (f). Comparing (b) with (f) checks the effect of the exoskeleton reward terms. If its 95% confidence interval stays within ±2 percentage points, (d) against (f) is used to estimate the device effect. Otherwise, the comparison is (d) against (b). Run (d) is also evaluated with assistance switched off.
 
-### 2.1 Environment
+## Setup
 
-The setup targets **Linux** and was developed on Ubuntu. Requirements include Git, curl, and several GB of disk space. Training uses CPU execution. The launcher additionally uses `nproc` and `taskset` for CPU allocation.
+The scripts target Linux and were developed on Ubuntu. Training uses the CPU. Git, curl, and several GB of free disk space are needed. The launcher also uses `nproc` and `taskset`.
 
 ```bash
 git clone https://github.com/mushfique-dgist/smat-replication.git
@@ -82,9 +69,9 @@ cd smat-replication
 bash deploy/setup_smat3.sh
 ```
 
-The setup script installs uv if needed, clones the pinned MyoAssist revision into `ext/`, and creates `venv-smat3`. It installs the versions below, asserts the five core package versions, and runs the unit suite:
+The setup script installs uv if needed, downloads MyoAssist, and creates the `venv-smat3` environment. MyoAssist is fixed at commit [`3b945c7`](https://github.com/neumovelab/myoassist/tree/3b945c7bb77a1792141652681441796a6a37a4a9), from 5 February 2026, before the first SMAT preprint.
 
-| Component | Version |
+| Package | Version |
 |---|---|
 | Python | 3.12 |
 | PyTorch | 2.14.1+cpu |
@@ -94,11 +81,11 @@ The setup script installs uv if needed, clones the pinned MyoAssist revision int
 | NumPy | 2.2.6 |
 | pytest | 9.1.1 |
 
-[`smat_r3/pip_freeze.txt`](smat_r3/pip_freeze.txt) records the reference environment. A fresh installation writes its resolved package set to `smat_r3/pip_freeze_local.txt`. Packages without explicit pins are resolved during setup.
+Setup checks the five main package versions and runs the tests. [`smat_r3/pip_freeze.txt`](smat_r3/pip_freeze.txt) lists the packages from the reference environment. A new installation saves its own list to `smat_r3/pip_freeze_local.txt`. Some dependencies are unpinned, so that list can differ.
 
-### 2.2 Training
+## Running the training
 
-Each stage is launched for all configurations in its directory, with one run per configuration. Stages are executed in order; each later stage requires its seed's completed parent policy. Relaunching a run resumes its latest checkpoint toward the same absolute step target.
+Run the stages in order from the repository root. Each command launches all configurations for that stage. The next stage needs the previous stage's completed policy for the same seed.
 
 ```bash
 bash deploy/launch_stage.sh 1     # Stage 1, seeds 1-3, T06 (deploy/configs_stage1_T06)
@@ -107,20 +94,24 @@ bash deploy/launch_stage.sh 3     # Stage 3
 bash deploy/launch_stage.sh 4     # Stage 4: conditions (d), (b) and (f) for seeds 1-3
 ```
 
-The launcher allocates CPU ranges across configurations, pins environment workers, and writes each run to `runs/<RUN_NAME>/`. Alternative Stage-1 T02 configurations are provided in `deploy/configs_stage1_T02/`; later-stage configurations use `STAGE1_VARIANT` to select the corresponding parent variant.
+Each run is saved under `runs/<RUN_NAME>/`. The launcher splits the available CPU cores between runs. If training stops, running the command again resumes from the latest checkpoint toward the original step target.
 
-The following independent command blocks start from the repository root. A single run can be launched directly:
+A single run can also be started directly from the repository root:
 
 ```bash
 cd smat_r3/smat3
 ../../venv-smat3/bin/python train.py --stage 1 --run-dir ../../runs/stage1_T06_seed1 --seed 1 --termination-variant T06
 ```
 
-Stage transitions use `final_policy_state_dict.pt`; evaluation uses the PPO archives in `checkpoints/`. The final state dictionary is written only when the stage reaches its target step count.
+The next stage loads `final_policy_state_dict.pt`, which is saved only after training reaches the target step count. Evaluation uses the PPO files under `checkpoints/`.
 
-### 2.3 Checkpoint evaluation
+The alternative Stage-1 T02 configurations are in `deploy/configs_stage1_T02/`. Later-stage configurations use `STAGE1_VARIANT` to select that variant's parent policy.
 
-[`evaluate_gait_gate.py`](smat_r3/eval/evaluate_gait_gate.py) evaluates one checkpoint over 10 deterministic episodes by default, using seeds 0–9. It records per-muscle activation, gait measures, and termination causes as JSON. Replace `N` with the checkpoint's numeric step count.
+## Evaluation
+
+[`evaluate_gait_gate.py`](smat_r3/eval/evaluate_gait_gate.py) runs one checkpoint through 10 episodes by default, with seeds 0–9 and deterministic policy actions. It saves muscle activation, walking speed, joint movement, and reasons for episode endings as JSON.
+
+Start each command block below from the repository root. Replace `N` with the checkpoint's step count.
 
 ```bash
 cd smat_r3/eval
@@ -130,7 +121,7 @@ cd smat_r3/eval
     --stage 4 --device-off --out ../../runs/stage4d_seed1/eval_device_off.json
 ```
 
-For conditions (b) and (f), `--device-off` is required during evaluation: the evaluator constructs the standard Stage-4 environment and does not infer the torque override from the checkpoint or training directory.
+Use `--device-off` for both control runs. The evaluator does not read their torque setting from the training configuration.
 
 ```bash
 cd smat_r3/eval
@@ -140,87 +131,65 @@ cd smat_r3/eval
     --stage 4 --device-off --out ../../runs/stage4f_seed1/eval.json
 ```
 
-## 3. Evaluation protocol
+The planned gait checks are:
 
-The analysis protocol requires all six gait criteria at the end of Stages 1, 2, and 4, and G1, G2, and G4 at the end of Stage 3. G1–G3 are also checked at the first Stage-1 checkpoint at or after 20M steps to detect degenerate gait early.
-
-| Criterion | Requirement |
+| Check | Requirement |
 |:---:|---|
-| G1 | Mean hip-flexion range of motion ≥ 30° on each leg |
-| G2 | Mean knee range of motion ≥ 40° on each leg |
+| G1 | Average hip-flexion range ≥ 30° on each leg |
+| G2 | Average knee range ≥ 40° on each leg |
 | G3 | Each hip at its joint limit in < 5% of steps |
-| G4 | Mean episode length ≥ 500 of 1,000 steps; at most 5 of 10 episodes terminate by deviation within their first 100 steps |
-| G5 | Mean forward speed within 15% of the target speed |
-| G6 | Left–right symmetry index < 20% for hip and knee range of motion |
+| G4 | Average episode length ≥ 500 of 1,000 steps, with at most 5 of 10 episodes ending from reference deviation in their first 100 steps |
+| G5 | Average forward speed within 15% of the target |
+| G6 | Left–right symmetry index < 20% for hip and knee range |
 
-Ranges of motion are computed per episode. Joint-limit contact is measured from MuJoCo constraint rows, with a reported position-proximity fallback when these rows cannot be read. Measurement definitions are recorded under D-EVAL-01 to D-EVAL-03 in the [implementation notes](docs/IMPLEMENTATION_NOTES.md#12-evaluation). Cross-stage comparisons, confidence intervals, and application of the complete inclusion protocol are performed from the evaluation JSON files.
+All six checks apply at the end of Stages 1, 2, and 4. Stage 3 uses G1, G2, and G4. G1–G3 are also checked at the first Stage-1 checkpoint at or after 20M steps to catch poor gait early.
 
-## 4. Implementation assumptions and limitations
+Joint ranges are measured over each episode. Hip-limit contact is measured from MuJoCo's joint-limit forces, with a position-based check as a fallback. The [evaluation notes](docs/IMPLEMENTATION_NOTES.md#12-evaluation) give the exact definitions. Comparisons between runs and confidence intervals are calculated from the saved JSON files.
 
-The published supplement specifies the curriculum, reward weights, and PPO settings. The following choices concern details not reported in the papers or differences introduced by the selected simulation framework. Each is documented in [`IMPLEMENTATION_NOTES.md`](docs/IMPLEMENTATION_NOTES.md).
+## Implementation choices
 
-| Aspect | Implementation choice | Record |
-|---|---|---|
-| Episode termination | Reference deviation > 0.6 rad (T06, primary) or > 0.2 rad (T02, alternative); pelvis height < 0.7 m; reference end; or 1,000-step limit | D-TERM-01–02 |
-| Device geometry | Assumed mass distribution: 2.5 kg pelvis unit and two 1.72 kg hip units; direct hip-flexion torque with commands in [−1, 1] | D-XML-01–06 |
-| Human observation | 16 joint angles, 18 joint velocities, 26 activations, four foot sensors, and target speed: 65 inputs, expanded to 67 in Stage 4 | D-OBS-01, D-OBS-03 |
-| Exoskeleton observation | Three-step history of bilateral hip angles, velocities, and normalized commands: 18 inputs, with zero initial padding | D-OBS-02, D-OBS-04 |
-| Policy transitions | Stage-3 exoskeleton actor reinitialized; frozen human actions remain sampled. Stage 4 copies existing human weights and initializes two new input columns from N(0, 0.01). Stage 2 updates the human actor and critic only | D-POLICY-02–04 |
-| Target speed | Fixed reference-trial mean, approximately 1.28 m/s, versus 1.25 m/s in the papers; MyoAssist's argument-order error in per-episode speed randomization is bypassed | D-VEL-01 |
-| Value loss | Coefficient 0.5, the Stable-Baselines3 default | D-PPO-01 |
-| Upstream version | MyoAssist `3b945c7`; later squared-activation and device-effort reward changes are excluded | D-DEPS-01, D-REW-UPSTREAM-01 |
+Some details, including device geometry and episode termination, are not given in the papers. The main choices here are:
 
-Reference-motion diagnostics in the implementation record identify two additional limitations:
+- End an episode when a tracked joint differs from the reference by more than 0.6 rad (T06), the pelvis drops below 0.7 m, the reference ends, or 1,000 steps pass. T02 uses a stricter 0.2 rad limit.
+- Model the 5.94 kg device as a 2.5 kg pelvis unit and two 1.72 kg hip units. Their shapes and positions are assumed.
+- Use 65 human-policy inputs, with two motor commands added in Stage 4. The exoskeleton gets an 18-value history of hip angles, velocities, and its own commands.
+- Fix the target speed at about 1.28 m/s from the reference motion. The papers use 1.25 m/s. This also avoids an argument-order bug in MyoAssist's speed randomizer.
 
-- **Joint-range mismatch.** The reference requires more hip extension than the model permits: minima of approximately −0.517 rad (right) and −0.474 rad (left), against a −0.349 rad limit. Approximately 21.7% and 17.5% of samples exceed these limits. Smaller violations occur at the left ankle (3.9%), right knee (0.5%), and right ankle (0.1%). Tracked reference coordinates are clamped to model joint ranges (D-REF-04, D-REF-07).
-- **Reference foot height.** Applying the reference pose places the foot below the floor in 85.2% of frames, with median depth 1.84 cm, 99th percentile 7.89 cm, and maximum 8.39 cm. No reference-height correction is applied, consistent with the selected MyoAssist revision (D-REF-05).
+The reference motion has problems too. About 21.7% of right-hip samples and 17.5% of left-hip samples extend beyond the model's joint limits, so the reference values are clamped to those limits. Applying the reference pose also puts the foot below the floor in 85.2% of frames. No height correction is applied.
 
-## 5. Verification and available evidence
+The [implementation notes](docs/IMPLEMENTATION_NOTES.md) keep the full measurements, observation layout, and policy-transfer details. They also explain the reward behavior inherited from this MyoAssist version. Later upstream changes to the activation and device-effort penalties are not used.
 
-The repository includes 63 unit-test methods covering stage constants, hand-computed reward formulas, policy freezing and input expansion, termination-cause priority, observation and action dimensions, control conditions, and worker pinning.
+## Tests
+
+There are 63 test cases for the reward formulas, stage settings, policy changes, and environment behavior. The model tests also check the 5.94 kg mass difference between Stage 1 and the later stages.
+
+Run these from the repository root after setup:
 
 ```bash
 venv-smat3/bin/python -m pytest smat_r3/tests -v
 bash deploy/run_smoke_matrix.sh
 ```
 
-The smoke matrix exercises the Stage-1 T06 and T02 variants, the Stage-2 to Stage-4 chain, and both Stage-4 controls at reduced rollout sizes. Its acceptance checks are process completion, a final policy state dictionary, and no NaN entries in the progress log. The script recreates `smat_r3/smoke_runs/` and writes `SUMMARY.txt` there.
+The smoke script runs short versions of the training stages and both controls. It checks that each run finishes, saves a final policy, and has no NaN entries in its progress log. It clears `smat_r3/smoke_runs/` before starting and writes a summary there.
 
-| Evidence | Status in the source release |
-|---|---|
-| Release-preparation checks | 28 dependency-independent reward and stage-configuration tests passed on Windows; the full Linux simulation suite was not rerun |
-| Unit suite and smoke matrix | The pre-release project record reports 63 passing tests and completion of all smoke jobs; original run logs are not bundled |
-| Model mass check | The test suite checks that Stage 1 is 5.94 kg lighter than the device model, to 0.01 kg, with identical joint and actuator dimensions |
-| Reference diagnostics | Diagnostic scripts and measurements are documented in `smat_r3/eval/` and the implementation notes |
-| Training throughput | The implementation record reports approximately 1,300 environment steps/s per 32-environment run on Zen 3 CPUs with worker pinning; hardware-specific measurement, D-PERF-01 |
-| Full-length replication | Pending; no completed gait-gate outcomes or device-effect contrasts are released |
+Earlier checks recorded 63 passing tests and successful smoke runs. Those logs are not included. A smaller set of 28 tests was also checked on Windows before the first upload, without rerunning the full Linux suite.
 
-Software checks and reduced training runs establish implementation behavior; they do not establish reproduction of the published activation reduction.
-
-## 6. Repository structure
+## Files
 
 ```text
-deploy/
-  setup_smat3.sh             Environment setup and version checks
-  launch_stage.sh            Per-stage, multi-configuration launcher
-  run_smoke_matrix.sh        Reduced curriculum and control-condition checks
-  configs_stage1_T06/        Stage 1, seeds 1–3, primary termination variant
-  configs_stage1_T02/        Stage 1, seeds 1–3, alternative termination variant
-  configs_stage2/            Stage 2 configurations
-  configs_stage3/            Stage 3 configurations
-  configs_stage4/            Conditions (d), (b), and (f), seeds 1–3
+deploy/                       Setup, launch scripts, and run configurations
 smat_r3/
-  smat3/                    Policies, environments, rewards, and training
-  eval/                     Checkpoint evaluation and reference diagnostics
-  models/                   Device and Stage-1 XML models and generators
-  tests/                    Unit tests
-  requirements_r3.txt       MyoAssist requirements with the SB3 pin
-  pip_freeze.txt            Reference environment
+  smat3/                      Training code, policies, rewards, and environments
+  eval/                       Evaluation and reference-motion checks
+  models/                     XML models and scripts that generate them
+  tests/                      Test cases
+  requirements_r3.txt         Dependencies
+  pip_freeze.txt              Reference environment
 docs/
-  IMPLEMENTATION_NOTES.md    Assumptions, deviations, and diagnostic evidence
-  THIRD_PARTY_NOTICES.md     Model provenance and third-party terms
-  figures/                  Training-protocol schematic
-licenses/                   Third-party license text
+  IMPLEMENTATION_NOTES.md      Detailed choices and earlier measurements
+  THIRD_PARTY_NOTICES.md       Model credits and license information
+  figures/                    Training diagram
+licenses/                     Third-party license text
 ```
 
 ## References
@@ -231,6 +200,8 @@ licenses/                   Third-party license text
 4. A. Raffin, A. Hill, A. Gleave, A. Kanervisto, M. Ernestus, and N. Dormann. **Stable-Baselines3: Reliable Reinforcement Learning Implementations.** Journal of Machine Learning Research, 22(268), 1–8, 2021. [Article](https://jmlr.org/papers/v22/20-1364.html).
 5. E. Todorov, T. Erez, and Y. Tassa. **MuJoCo: A Physics Engine for Model-Based Control.** IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS), 2012. [doi:10.1109/IROS.2012.6386109](https://doi.org/10.1109/IROS.2012.6386109).
 
-## Attribution and third-party components
+## Third-party code and models
 
-The SMAT method is attributed to the authors of [1, 2]. MyoAssist is cloned during setup; its package, meshes, and reference-motion data are not bundled. The two distributed XML models derive from MyoAssist's `myoLeg26_BASELINE.xml` and retain the original model credits, modification notices, and CC BY 3.0 attribution. MyoAssist's upstream Apache License 2.0 text is included in [`licenses/`](licenses/MyoAssist-Apache-2.0.txt). Component provenance and the scope of these third-party terms are recorded in [`THIRD_PARTY_NOTICES.md`](docs/THIRD_PARTY_NOTICES.md).
+MyoAssist is downloaded during setup. Its package, meshes, and reference-motion data are not included here. The two XML models are based on MyoAssist's `myoLeg26_BASELINE.xml` and keep the original credits, modification notes, and CC BY 3.0 notice.
+
+The upstream Apache 2.0 license is in [`licenses/`](licenses/MyoAssist-Apache-2.0.txt). Further details are in [the third-party notices](docs/THIRD_PARTY_NOTICES.md).
